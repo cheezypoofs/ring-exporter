@@ -2,7 +2,7 @@
 
 This project's goal was for me to be able to plot statistics like my doorbell's battery life, wifi strength, etc using [Prometheus](https://prometheus.io/) and [Grafana](https://grafana.com/). The `ringapi` package in this module may turn out to be a generally useful thing so we'll see how this evolves.
 
-Inspiration was taken largely from [python-ring-doorbell](https://github.com/tchellomello/python-ring-doorbell) as a great working example of Ring's 2FA implementation. Some of the initial types I lifted from [golang-ring-doorbell](https://github.com/efarrer/golang-ring-doorbell) which I'm not sure works correctly with 2FA, but a few of the types were useful to copy anyway.
+Inspiration was taken largely from [python-ring-doorbell](https://github.com/tchellomello/python-ring-doorbell) as a great working example of Ring's 2FA implementation and a few of the available APIs. Some of the initial types I lifted from [golang-ring-doorbell](https://github.com/efarrer/golang-ring-doorbell) which I'm not sure works correctly with 2FA, but a few of the types were useful to copy anyway.
 
 ## Usage
 

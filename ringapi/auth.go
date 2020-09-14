@@ -23,8 +23,8 @@ var (
 // the OAUTH2 Token from some persistence. This is especially useful
 // when 2FA is in use.
 type TokenHandler interface {
-	Fetch() *oauth2.Token
-	Store(*oauth2.Token)
+	FetchToken() *oauth2.Token
+	StoreToken(*oauth2.Token)
 }
 
 // Authenticator implements routines for capturing info necessary
@@ -57,7 +57,7 @@ func OpenAuthorizedSession(cfg ApiConfig, t TokenHandler, a Authenticator) (*Aut
 	if t == nil {
 		return nil, fmt.Errorf("TokenHandler is required")
 	}
-	token := t.Fetch()
+	token := t.FetchToken()
 
 	if token == nil {
 		if a == nil {
@@ -110,7 +110,7 @@ func OpenAuthorizedSession(cfg ApiConfig, t TokenHandler, a Authenticator) (*Aut
 			// We got the token via 2FA
 		}
 
-		t.Store(token)
+		t.StoreToken(token)
 	}
 
 	log.Printf("Token acquired")

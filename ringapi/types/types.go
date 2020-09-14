@@ -103,8 +103,8 @@ type DevicesResponse struct {
 
 // DeviceHealth describes a single DoorBot's health
 type DeviceHealth struct {
-	Id                        uint32  `json:"id"`
-	WifiName                  *string `json:"wifi_name"`
+	Id       uint32  `json:"id"`
+	WifiName *string `json:"wifi_name"`
 	// BatteryPercentage can be null and is a string, not a float so you need to convert.
 	BatteryPercentage         *string `json:"battery_percentage"`
 	BatteryPercentageCategory *string `json:"battery_percentage_category"`
@@ -131,4 +131,10 @@ type DoorBotHealthResponse struct {
 // ChimeHealthResponse is the top-level response from the ring chime health API query.
 type ChimeHealthResponse struct {
 	DeviceHealth DeviceHealth `json:"device_health"`
+}
+
+type DoorBotDing struct {
+	Id        int64  `json:"id"`
+	CreatedAt string `json:"created_at"`
+	Kind      string `json:"kind"`
 }

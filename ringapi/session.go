@@ -117,3 +117,12 @@ func (session *AuthorizedSession) GetChimeHealth(chime *ring_types.Chime) (*ring
 
 	return healthResponse, nil
 }
+
+func (session *AuthorizedSession) GetDoorBotHistory(bot *ring_types.DoorBot) ([]ring_types.DoorBotDing, error) {
+	var response []ring_types.DoorBotDing
+	if err := query(session.client, "GET", fmt.Sprintf(uriDoorbots, bot.Id)+uriHistory, nil, &response); err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}

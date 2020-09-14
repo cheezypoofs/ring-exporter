@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -33,35 +34,130 @@ func sanitizeLabelValue(s string) string {
 }
 
 //////////////////
-type simpleFileTokenHandler struct {
+
+type dingCount struct {
+	DeviceId      uint32    `json:"device_id"`
+	MyCounter     uint32    `json:"my_counter"`
+	LastTimestamp time.Time `json:"last_timestamp"`
+}
+
+type ringState struct {
+	Token      *oauth2.Token `json:"token"`
+	DingCounts []dingCount   `json:"ding_counts"`
+}
+
+// ringStateHandler implements TokenHandler
+type ringStateHandler struct {
 	filename string
+
+	lock  sync.Mutex
+	state ringState
 }
 
-func newSimpleFileTokenHandler(cfgFile string) *simpleFileTokenHandler {
-	tokenFile := filepath.Join(filepath.Dir(cfgFile), "ring-token.json")
+func newRingStateHandler(cfgFile string) *ringStateHandler {
+	stateFile := filepath.Join(filepath.Dir(cfgFile), "ring-state.json")
 
-	return &simpleFileTokenHandler{
-		filename: tokenFile,
+	handler := &ringStateHandler{
+		filename: stateFile,
 	}
+	handler.load()
+	return handler
 }
 
-func (s *simpleFileTokenHandler) Fetch() *oauth2.Token {
-	token := &oauth2.Token{}
+// Fetch implements TokenHandler.FetchToken and stateHandler
+func (s *ringStateHandler) FetchToken() *oauth2.Token {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	return s.state.Token
+}
+
+// Fetch implements TokenHandler.StoreToken
+func (s *ringStateHandler) StoreToken(token *oauth2.Token) {
+	s.lock.Lock()
+	s.state.Token = token
+	s.saveLocked()
+	s.lock.Unlock()
+}
+
+func (s *ringStateHandler) load() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	data, err := ioutil.ReadFile(s.filename)
 	if err != nil {
-		return nil
+		return err
 	}
 
-	if json.Unmarshal(data, token); err != nil {
-		return nil
+	if json.Unmarshal(data, &s.state); err != nil {
+		return err
 	}
 
-	return token
+	return nil
 }
 
-func (s *simpleFileTokenHandler) Store(token *oauth2.Token) {
-	data, _ := json.MarshalIndent(token, "", " ")
+func (s *ringStateHandler) Save() {
+	s.lock.Lock()
+	s.saveLocked()
+	s.lock.Unlock()
+}
+
+func (s *ringStateHandler) saveLocked() {
+	data, _ := json.MarshalIndent(s.state, "", " ")
 	ioutil.WriteFile(s.filename, data, 0600)
+}
+
+func (s *ringStateHandler) updateDingCount(bot *ring_types.DoorBot, dings *[]ring_types.DoorBotDing) (uint32, error) {
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	var count *dingCount
+
+	// See if we have state already for this device
+	for _, d := range s.state.DingCounts {
+		if d.DeviceId == bot.Id {
+			// grab a reference
+			count = &d
+			break
+		}
+	}
+
+	// Create a new state entry for this device
+	if count == nil {
+		newCount := dingCount{
+			DeviceId: bot.Id,
+		}
+		s.state.DingCounts = append(s.state.DingCounts, newCount)
+		// grab a reference to it
+		count = &s.state.DingCounts[len(s.state.DingCounts)-1]
+	}
+
+	// Keep track of the latest bookmark we have
+	lastTimestamp := count.LastTimestamp
+
+	for _, ding := range *dings {
+		ts, err := time.Parse(time.RFC3339, ding.CreatedAt)
+		if err != nil {
+			continue
+		}
+
+		// Count this ding if it's after the last bookmark
+		if ts.After(count.LastTimestamp) {
+			count.MyCounter++
+		}
+
+		// Move our bookmark forward to the most recent one we've seen
+		if ts.After(lastTimestamp) {
+			lastTimestamp = ts
+		}
+	}
+
+	// Persist the bookmark
+	count.LastTimestamp = lastTimestamp
+
+	// And let the caller know the current count for this device now
+	return count.MyCounter, nil
 }
 
 ////////////////
@@ -190,7 +286,7 @@ func handleInit(cfgFile string) error {
 	}
 
 	// Now, let's authenticate a new token
-	if _, err = ringapi.OpenAuthorizedSession(cfg.ApiConfig, newSimpleFileTokenHandler(cfgFile), &cliAuthenticator{}); err != nil {
+	if _, err = ringapi.OpenAuthorizedSession(cfg.ApiConfig, newRingStateHandler(cfgFile), &cliAuthenticator{}); err != nil {
 		return errors.Wrapf(err, "Failed to authorize new token")
 	}
 
@@ -205,7 +301,7 @@ func handleTest(cfgFile string) error {
 	}
 
 	// No authenticator. Should fail if we don't have a token.
-	session, err := ringapi.OpenAuthorizedSession(cfg.ApiConfig, newSimpleFileTokenHandler(cfgFile), nil)
+	session, err := ringapi.OpenAuthorizedSession(cfg.ApiConfig, newRingStateHandler(cfgFile), nil)
 	if err != nil {
 		return err
 	}
@@ -218,17 +314,26 @@ func handleTest(cfgFile string) error {
 
 	fmt.Printf("Ready to work with your bells, %s %s\n", info.Profile.FirstName, info.Profile.LastName)
 
+	devices, _ := session.GetDevices()
+	for _, device := range devices.DoorBots {
+		session.GetDoorBotHistory(&device)
+	}
+
 	return nil
 }
 
 func handleMonitor(cfgFile string, metrics *prometheus.Registry, quitter chan struct{}) error {
+
+	// todo: Really want to refactor a lot of this out
 
 	cfg, err := loadConfig(cfgFile)
 	if err != nil {
 		return err
 	}
 
-	session, err := ringapi.OpenAuthorizedSession(cfg.ApiConfig, newSimpleFileTokenHandler(cfgFile), nil)
+	stateHandler := newRingStateHandler(cfgFile)
+
+	session, err := ringapi.OpenAuthorizedSession(cfg.ApiConfig, stateHandler, nil)
 	if err != nil {
 		return err
 	}
@@ -253,6 +358,17 @@ func handleMonitor(cfgFile string, metrics *prometheus.Registry, quitter chan st
 	})
 	metrics.MustRegister(wifiSignal)
 
+	// It's a counter, but we're explicitly sampling a value we best-effort count and persist ourselves
+	// so it's really more like a gauge of a counter we don't control.
+	dingsCount := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ring_device_dings_total",
+		Help: "Best-effort count of total dings",
+	}, []string{
+		"description",
+		"type",
+	})
+	metrics.MustRegister(dingsCount)
+
 	updateDeviceMetrics := func(description string, health *ring_types.DeviceHealth, typ string) {
 		// Let's get battery level
 		if health.BatteryPercentage != nil {
@@ -276,8 +392,23 @@ func handleMonitor(cfgFile string, metrics *prometheus.Registry, quitter chan st
 				"description": sanitizeLabelValue(description),
 				"type":        typ,
 			})
+			log.Printf("Device %s has wifi strength %f", description, *health.LatestSignalStrength)
 			ws.Set(float64(*health.LatestSignalStrength))
 		}
+	}
+
+	updateDingMetrics := func(device *ring_types.DoorBot, dings *[]ring_types.DoorBotDing) {
+		curCount, err := stateHandler.updateDingCount(device, dings)
+
+		if err != nil {
+			return
+		}
+
+		dingsCount.With(prometheus.Labels{
+			"description": sanitizeLabelValue(device.Description),
+			"type":        "doorbot",
+		}).Set(float64(curCount))
+		log.Printf("Device %s has current ding count %d", device.Description, curCount)
 	}
 
 	pollOnce := func() {
@@ -296,6 +427,11 @@ func handleMonitor(cfgFile string, metrics *prometheus.Registry, quitter chan st
 				continue
 			}
 			updateDeviceMetrics(device.Description, &hr.DeviceHealth, "doorbot")
+
+			dings, err := session.GetDoorBotHistory(&device)
+			if err == nil {
+				updateDingMetrics(&device, &dings)
+			}
 		}
 
 		for _, device := range devices.Chimes {
@@ -317,6 +453,9 @@ func handleMonitor(cfgFile string, metrics *prometheus.Registry, quitter chan st
 			select {
 			case <-ticker.C:
 				pollOnce()
+
+				// todo: We can run this on a different interval
+				stateHandler.Save()
 			case <-quitter:
 				ticker.Stop()
 				return

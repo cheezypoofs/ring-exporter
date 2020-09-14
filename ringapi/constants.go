@@ -8,5 +8,7 @@ const (
 	uriRingDevices = "/clients_api/ring_devices"
 	uriChimes      = "/clients_api/chimes/%d"
 	uriDoorbots    = "/clients_api/doorbots/%d"
+	urlDingsActive = "/clients_api/dings/active"
 	uriHealth      = "/health"
+	uriHistory     = "/history"
 )
