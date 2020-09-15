@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	doorbotType      = "dootbot"
+	doorbotType      = "doorbot"
 	chimeType        = "chime"
 	descriptionLabel = "description"
 	typeLabel        = "type"
