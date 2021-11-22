@@ -95,19 +95,46 @@ type Chime struct {
 	// note: There are many other data available
 }
 
+// Camera is a camera
+type Camera struct {
+	Id                 uint32      `json:"id"`
+	Description        string      `json:"description"`
+	DeviceID           string      `json:"device_id"`
+	BatteryLife        interface{} `json:"battery_life"`   // may be float or string
+	BatteryLife2       interface{} `json:"battery_life_2"` // may be float or string
+	TimeZone           string      `json:"time_zone"`
+	Subscribed         bool        `json:"subscribed"`
+	SubscribedMotions  bool        `json:"subscribed_motions"`
+	BatteryVoltage     float64     `json:"battery_voltage"`
+	BatteryVoltage2    float64     `json:"battery_voltage_2"`
+	ExternalConnection bool        `json:"external_connection"`
+	FirmwareVersion    string      `json:"firmware_version"`
+	Kind               string      `json:"kind"`
+	Features           struct {
+		MotionsEnabled          bool `json:"motions_enabled"`
+		ShowRecordings          bool `json:"show_recordings"`
+		AdvancedMotionEnabled   bool `json:"advanced_motion_enabled"`
+		PeopleOnlyEnabled       bool `json:"people_only_enabled"`
+		ShadowCorrectionEnabled bool `json:"shadow_correction_enabled"`
+		MotionMessageEnabled    bool `json:"motion_message_enabled"`
+		NightVisionEnabled      bool `json:"night_vision_enabled"`
+	} `json:"features"`
+}
+
 // DevicesResponse is the top-level response from the ring devices API.
 type DevicesResponse struct {
 	DoorBots []DoorBot `json:"doorbots"`
 	Chimes   []Chime   `json:"chimes"`
+	Cameras  []Camera  `json:"stickup_cams"`
 }
 
 // DeviceHealth describes a single DoorBot's health
 type DeviceHealth struct {
 	Id       uint32  `json:"id"`
 	WifiName *string `json:"wifi_name"`
-	// BatteryPercentage can be null and is a string, not a float so you need to convert.
-	BatteryPercentage         *string `json:"battery_percentage"`
-	BatteryPercentageCategory *string `json:"battery_percentage_category"`
+	// BatteryPercentage can be null, a string, or a float
+	BatteryPercentage         interface{} `json:"battery_percentage"`
+	BatteryPercentageCategory *string     `json:"battery_percentage_category"`
 	// note: I don't use these and I'm unsure what they look like as mine were null.
 	//	BatteryVoltage interface{} `json:"battery_voltage"`
 	//	BatteryVoltageCategory interface{} `json:"battery_voltage_category"`

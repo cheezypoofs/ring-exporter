@@ -1,19 +1,21 @@
 package exporter
 
 import (
-	"github.com/cheezypoofs/ring-exporter/ringapi"
-	ring_types "github.com/cheezypoofs/ring-exporter/ringapi/types"
-	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/cheezypoofs/ring-exporter/ringapi"
+	ring_types "github.com/cheezypoofs/ring-exporter/ringapi/types"
+	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
 	doorbotType      = "doorbot"
 	chimeType        = "chime"
+	cameraType       = "camera"
 	descriptionLabel = "description"
 	typeLabel        = "type"
 )
@@ -88,18 +90,18 @@ func NewMonitor(cfgFile string, metrics *prometheus.Registry) (*Monitor, error) 
 	return monitor, nil
 }
 
-func (m *Monitor) updateDingMetrics(device *ring_types.DoorBot, dings *[]ring_types.DoorBotDing) {
-	curCount, err := m.StateHandler.UpdateDingCount(device, dings)
+func (m *Monitor) updateDingMetrics(description string, id uint32, dings *[]ring_types.DoorBotDing, typ string) {
+	curCount, err := m.StateHandler.UpdateDingCount(id, dings)
 
 	if err != nil {
 		return
 	}
 
 	m.dingsCount.With(prometheus.Labels{
-		"description": sanitizeLabelValue(device.Description),
-		"type":        doorbotType,
+		"description": sanitizeLabelValue(description),
+		"type":        typ,
 	}).Set(float64(curCount))
-	log.Printf("Device %s has current ding count %d", device.Description, curCount)
+	log.Printf("Device %s has current ding count %d", description, curCount)
 }
 
 func (m *Monitor) updateDeviceMetrics(description string, health *ring_types.DeviceHealth, typ string) {
@@ -110,13 +112,24 @@ func (m *Monitor) updateDeviceMetrics(description string, health *ring_types.Dev
 			"description": sanitizeLabelValue(description),
 			"type":        typ,
 		})
-		f, err := strconv.ParseFloat(*health.BatteryPercentage, 64)
-		if err != nil {
-			log.Printf("Skipping %s due to failure parsing battery pct '%s'", description, health.BatteryPercentage)
-			bl.Set(math.NaN())
-		} else {
-			log.Printf("Device %s has battery pct %f", description, f)
-			bl.Set(f)
+
+		if health.BatteryPercentage != nil {
+			var batteryPct float64
+			switch value := health.BatteryPercentage.(type) {
+			case string:
+				if f, err := strconv.ParseFloat(value, 64); err != nil {
+					log.Printf("Skipping %s due to failure parsing battery pct '%s'", description, value)
+					bl.Set(math.NaN())
+					return
+				} else {
+					batteryPct = f
+				}
+			case float64:
+				batteryPct = value
+			}
+
+			log.Printf("Device %s has battery pct %f", description, batteryPct)
+			bl.Set(batteryPct)
 		}
 	}
 
@@ -139,19 +152,34 @@ func (m *Monitor) PollOnce() error {
 		return errors.Wrapf(err, "Failed to retrieve device info")
 	}
 
+	for _, camera := range devices.Cameras {
+		log.Printf("Camera: %s", camera.Description)
+		hr, err := m.Session.GetDoorBotHealth(camera.Id)
+		if err != nil {
+			log.Printf("Skipping %s because of failed health fetch: %v", camera.Description, err)
+			continue
+		}
+		m.updateDeviceMetrics(camera.Description, &hr.DeviceHealth, cameraType)
+
+		dings, err := m.Session.GetDoorBotHistory(camera.Id)
+		if err == nil {
+			m.updateDingMetrics(camera.Description, camera.Id, &dings, cameraType)
+		}
+	}
+
 	for _, device := range devices.DoorBots {
 
 		// Get the health. It has more details
-		hr, err := m.Session.GetDoorBotHealth(&device)
+		hr, err := m.Session.GetDoorBotHealth(device.Id)
 		if err != nil {
 			log.Printf("Skipping %s because of failed health fetch: %v", device.Description, err)
 			continue
 		}
 		m.updateDeviceMetrics(device.Description, &hr.DeviceHealth, doorbotType)
 
-		dings, err := m.Session.GetDoorBotHistory(&device)
+		dings, err := m.Session.GetDoorBotHistory(device.Id)
 		if err == nil {
-			m.updateDingMetrics(&device, &dings)
+			m.updateDingMetrics(device.Description, device.Id, &dings, doorbotType)
 		}
 	}
 

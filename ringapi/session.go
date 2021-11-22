@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	ring_types "github.com/cheezypoofs/ring-exporter/ringapi/types"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
+
+	ring_types "github.com/cheezypoofs/ring-exporter/ringapi/types"
 )
 
 ///////////////////////////////////
@@ -99,9 +100,9 @@ func (session *AuthorizedSession) GetDevices() (*ring_types.DevicesResponse, err
 }
 
 // GetDoorBotHealth fetches the health info for a particular id.
-func (session *AuthorizedSession) GetDoorBotHealth(bot *ring_types.DoorBot) (*ring_types.DoorBotHealthResponse, error) {
+func (session *AuthorizedSession) GetDoorBotHealth(id uint32) (*ring_types.DoorBotHealthResponse, error) {
 	healthResponse := &ring_types.DoorBotHealthResponse{}
-	if err := query(session.client, "GET", fmt.Sprintf(uriDoorbots, bot.Id)+uriHealth, nil, healthResponse); err != nil {
+	if err := query(session.client, "GET", fmt.Sprintf(uriDoorbots, id)+uriHealth, nil, healthResponse); err != nil {
 		return nil, err
 	}
 
@@ -118,9 +119,9 @@ func (session *AuthorizedSession) GetChimeHealth(chime *ring_types.Chime) (*ring
 	return healthResponse, nil
 }
 
-func (session *AuthorizedSession) GetDoorBotHistory(bot *ring_types.DoorBot) ([]ring_types.DoorBotDing, error) {
+func (session *AuthorizedSession) GetDoorBotHistory(id uint32) ([]ring_types.DoorBotDing, error) {
 	var response []ring_types.DoorBotDing
-	if err := query(session.client, "GET", fmt.Sprintf(uriDoorbots, bot.Id)+uriHistory, nil, &response); err != nil {
+	if err := query(session.client, "GET", fmt.Sprintf(uriDoorbots, id)+uriHistory, nil, &response); err != nil {
 		return nil, err
 	}
 
