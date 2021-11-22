@@ -2,13 +2,14 @@ package exporter
 
 import (
 	"encoding/json"
-	_ "github.com/cheezypoofs/ring-exporter/ringapi"
-	ring_types "github.com/cheezypoofs/ring-exporter/ringapi/types"
-	"golang.org/x/oauth2"
 	"io/ioutil"
 	"path/filepath"
 	"sync"
 	"time"
+
+	_ "github.com/cheezypoofs/ring-exporter/ringapi"
+	ring_types "github.com/cheezypoofs/ring-exporter/ringapi/types"
+	"golang.org/x/oauth2"
 )
 
 type dingCount struct {
@@ -89,7 +90,7 @@ func (s *RingStateHandler) saveLocked() {
 // UpdateDingCount updates the `RingState` with the historical set of dings and updates
 // the gauge reprsenting the ding counter appropriate. This returns the current count (across restart)
 // for the device as seen by this exporter and state.
-func (s *RingStateHandler) UpdateDingCount(bot *ring_types.DoorBot, dings *[]ring_types.DoorBotDing) (uint32, error) {
+func (s *RingStateHandler) UpdateDingCount(id uint32, dings *[]ring_types.DoorBotDing) (uint32, error) {
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -98,7 +99,7 @@ func (s *RingStateHandler) UpdateDingCount(bot *ring_types.DoorBot, dings *[]rin
 
 	// See if we have state already for this device
 	for _, d := range s.state.DingCounts {
-		if d.DeviceId == bot.Id {
+		if d.DeviceId == id {
 			// grab a reference
 			count = &d
 			break
@@ -108,7 +109,7 @@ func (s *RingStateHandler) UpdateDingCount(bot *ring_types.DoorBot, dings *[]rin
 	// Create a new state entry for this device
 	if count == nil {
 		newCount := dingCount{
-			DeviceId: bot.Id,
+			DeviceId: id,
 		}
 		s.state.DingCounts = append(s.state.DingCounts, newCount)
 		// grab a reference to it
